@@ -1124,7 +1124,7 @@ func convSchemaMessage(message *schema.Message) (mp anthropic.MessageParam, err 
 		tc := message.ToolCalls[i]
 
 		args := tc.Function.Arguments
-		if args == "" {
+		if args == "" || !json.Valid([]byte(args)) {
 			args = "{}"
 		}
 		// Arguments are limited to object type.
