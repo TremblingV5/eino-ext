@@ -1046,6 +1046,40 @@ func convSchemaMessage(message *schema.Message) (mp anthropic.MessageParam, err 
 					} else {
 						return mp, fmt.Errorf("image part must have either a URL or Base64Data")
 					}
+				case schema.ChatMessagePartTypeFileURL:
+					if message.UserInputMultiContent[i].File == nil {
+						return mp, fmt.Errorf("file field must not be nil when Type is ChatMessagePartTypeFileURL in user message")
+					}
+					file := message.UserInputMultiContent[i].File
+					if file.URL != nil && *file.URL != "" {
+						messageParams = append(messageParams, anthropic.DocumentBlockParam{
+							Source: anthropic.DocumentBlockParamSourceUnion{
+								OfURL: &anthropic.URLPDFSourceParam{
+									URL: *file.URL,
+								},
+							},
+						})
+					} else if file.Base64Data != nil && *file.Base64Data != "" {
+						if file.MIMEType == "" {
+							return mp, fmt.Errorf("file part must have MIMEType when use Base64Data")
+						}
+						if file.MIMEType != "application/pdf" {
+							return mp, fmt.Errorf("file part MIMEType must be application/pdf, got %s", file.MIMEType)
+						}
+						if strings.HasPrefix(*file.Base64Data, "data:") {
+							return mp, fmt.Errorf("Base64Data should be a raw base64 string, but it has a 'data:' prefix")
+						}
+						messageParams = append(messageParams, anthropic.DocumentBlockParam{
+							Source: anthropic.DocumentBlockParamSourceUnion{
+								OfBase64: &anthropic.Base64PDFSourceParam{
+									Data:      *file.Base64Data,
+									MediaType: anthropic.Base64PDFSourceMediaType(file.MIMEType),
+								},
+							},
+						})
+					} else {
+						return mp, fmt.Errorf("file part must have either a URL or Base64Data")
+					}
 				default:
 					return mp, fmt.Errorf("anthropic message type not supported: %s", message.UserInputMultiContent[i].Type)
 				}
@@ -1249,6 +1283,44 @@ func convToolMultiContent(callID string, parts []schema.MessageInputPart) (anthr
 			} else {
 				return result, fmt.Errorf("image part must have either a URL or Base64Data")
 			}
+	case schema.ChatMessagePartTypeFileURL:
+		if part.File == nil {
+			return result, fmt.Errorf("file field must not be nil when Type is ChatMessagePartTypeFileURL in tool result")
+		}
+		file := part.File
+		if file.URL != nil && *file.URL != "" {
+			result.OfToolResult.Content = append(result.OfToolResult.Content, anthropic.ToolResultBlockParamContentUnion{
+				OfDocument: &anthropic.DocumentBlockParam{
+					Source: anthropic.DocumentBlockParamSourceUnion{
+						OfURL: &anthropic.URLPDFSourceParam{
+							URL: *file.URL,
+						},
+					},
+				},
+			})
+		} else if file.Base64Data != nil && *file.Base64Data != "" {
+			if file.MIMEType == "" {
+				return result, fmt.Errorf("file part must have MIMEType when use Base64Data")
+			}
+			if file.MIMEType != "application/pdf" {
+				return result, fmt.Errorf("file part MIMEType must be application/pdf, got %s", file.MIMEType)
+			}
+			if strings.HasPrefix(*file.Base64Data, "data:") {
+				return result, fmt.Errorf("Base64Data should be a raw base64 string, but it has a 'data:' prefix")
+			}
+			result.OfToolResult.Content = append(result.OfToolResult.Content, anthropic.ToolResultBlockParamContentUnion{
+				OfDocument: &anthropic.DocumentBlockParam{
+					Source: anthropic.DocumentBlockParamSourceUnion{
+						OfBase64: &anthropic.Base64PDFSourceParam{
+							Data:      *file.Base64Data,
+							MediaType: anthropic.Base64PDFSourceMediaType(file.MIMEType),
+						},
+					},
+				},
+			})
+		} else {
+			return result, fmt.Errorf("file part must have either a URL or Base64Data")
+		}
 		default:
 			return result, fmt.Errorf("anthropic message type not supported: %s", part.Type)
 		}
@@ -1272,6 +1344,10 @@ func populateContentBlockBreakPoint(block anthropic.ContentBlockParamUnion, cach
 	}
 	if block.OfToolUse != nil {
 		block.OfToolUse.CacheControl = ctrl
+		return
+	}
+	if block.OfDocument != nil {
+		block.OfDocument.CacheControl = ctrl
 		return
 	}
 }
